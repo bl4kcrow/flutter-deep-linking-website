@@ -1,37 +1,63 @@
-# global options
+# Global options
 {
-	admin off # theres no need for the admin api in railway's environment
-	persist_config off # storage isn't persistent anyway
-	auto_https off # railway handles https for us, this would cause issues if left enabled
-	# runtime logs
-	log {
-		format json # set runtime log format to json mode 
-	}
-	# server options
-	servers {
-		trusted_proxies static private_ranges 100.0.0.0/8 # trust railway's proxy
-	}
+    # Disable the admin API as it's not needed in most environments
+    admin off
+
+    # Disable automatic HTTPS as it's often handled by external services
+    auto_https off
+
+    # Configure logging in JSON format for better parsing
+    log {
+        format json
+    }
+
+    # Trust private ranges as proxies, useful in container environments
+    servers {
+        trusted_proxies static private_ranges
+    }
 }
 
-# site block, listens on the $PORT environment variable, automatically assigned by railway
-:{$PORT:3000} {
-	# access logs
-	log {
-		format json # set access log format to json mode
-	}
+# Main server block, using the PORT environment variable
+:{$PORT} {
+    # Set the root directory using an environment variable for flexibility
+    root * {$SERVE_DIR}
 
-	# health check for railway
-	rewrite /health /*
+    # Handle requests to the .well-known directory
+    @wellknown {
+        path /.well-known/*
+    }
+    handle @wellknown {
+        # Strip the /.well-known prefix from the URI
+        uri strip_prefix /.well-known
+        # Set the root specifically for .well-known requests
+        root * {$SERVE_DIR}/.well-known
+        # Serve files from this directory
+        file_server
+    }
 
-	# serve from the 'dist' folder (Vite builds into the 'dist' folder)
-	root * dist
+    # Ensure correct MIME type for nostr.json
+    header /nostr.json Content-Type application/json
 
-	# enable gzipping responses
-	encode gzip
+    # Enable Gzip and Zstandard compression for better performance
+    encode gzip zstd
 
-	# serve files from 'dist'
-	file_server
+    # Define static file types and set caching headers
+    @static {
+        file
+        path *.ico *.css *.js *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2 *.json
+    }
+    header @static Cache-Control "public, max-age=3600"
 
-	# if path doesn't exist, redirect it to 'index.html' for client side routing
-	try_files {path} /index.html
+    # Support for Single Page Applications (SPA) routing
+    try_files {path} /index.html
+
+    # Custom error handling
+    handle_errors {
+        # Rewrite to the appropriate error page
+        rewrite * /{http.error.status_code}.html
+        file_server
+    }
+
+    # Enable static file serving for all other requests
+    file_server
 }
